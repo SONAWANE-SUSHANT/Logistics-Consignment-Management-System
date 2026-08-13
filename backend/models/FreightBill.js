@@ -1,6 +1,16 @@
 const PgModel = require('./pgModel');
 const { pool } = require('../config/db');
 
+const roundMoney = (value) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+
+const paymentStatusFor = (grandTotal, paidAmount) => {
+  const total = roundMoney(grandTotal);
+  const paid = roundMoney(paidAmount);
+  if (paid <= 0) return 'Unpaid';
+  if (paid >= total) return 'Paid';
+  return 'Partially Paid';
+};
+
 const lineColumns = {
   consignmentId: 'consignment_id',
   srNo: 'sr_no',
@@ -58,6 +68,7 @@ class FreightBillModel extends PgModel {
         'amountInWords',
         'notes',
         'status',
+        'paidAmount',
         'createdBy',
         'createdAt',
         'updatedAt',
@@ -79,6 +90,10 @@ class FreightBillModel extends PgModel {
       email: doc.email,
     };
     doc.lineItems = doc.lineItems || [];
+    doc.paidAmount = roundMoney(doc.paidAmount || 0);
+    doc.grandTotal = Number(doc.grandTotal || 0);
+    doc.pendingAmount = roundMoney(Math.max(doc.grandTotal - doc.paidAmount, 0));
+    doc.status = doc.status || paymentStatusFor(doc.grandTotal, doc.paidAmount);
     return doc;
   }
 
@@ -194,6 +209,88 @@ class FreightBillModel extends PgModel {
       row.lineItems = lineMap.get(String(row._id)) || [];
     });
     return rows;
+  }
+
+  // Records a payment against a freight bill, atomically updating the running
+  // paid_amount / status columns alongside the payment history row. Locks the
+  // bill row (FOR UPDATE) so concurrent payments can't race past the grand total.
+  async recordPayment(billId, { amount, paymentDate, mode, notes, createdBy } = {}) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const billResult = await client.query(
+        `SELECT * FROM ${this.tableName()} WHERE ${quoteIdent('id')} = $1 FOR UPDATE`,
+        [billId]
+      );
+      if (!billResult.rows[0]) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+
+      const bill = this.hydrate(billResult.rows[0]);
+      const paymentAmount = roundMoney(amount);
+
+      if (!paymentAmount || paymentAmount <= 0) {
+        const error = new Error('Payment amount must be greater than zero');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const newPaidAmount = roundMoney(bill.paidAmount + paymentAmount);
+      if (newPaidAmount - bill.grandTotal > 0.01) {
+        const error = new Error('Payment amount exceeds the pending balance');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const newStatus = paymentStatusFor(bill.grandTotal, newPaidAmount);
+
+      await client.query(
+        `INSERT INTO ${quoteIdent('freight_bill_payments')} (${quoteIdent('freight_bill_id')}, ${quoteIdent('amount')}, ${quoteIdent('payment_date')}, ${quoteIdent('mode')}, ${quoteIdent('notes')}, ${quoteIdent('created_by')}) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [billId, paymentAmount, paymentDate || new Date(), mode || null, notes || null, createdBy || null]
+      );
+
+      const updateResult = await client.query(
+        `UPDATE ${this.tableName()} SET ${quoteIdent('paid_amount')} = $1, ${quoteIdent('status')} = $2, ${quoteIdent('updated_at')} = NOW() WHERE ${quoteIdent('id')} = $3 RETURNING *`,
+        [newPaidAmount, newStatus, billId]
+      );
+      const updatedBill = this.hydrate(updateResult.rows[0]);
+
+      if (newStatus === 'Paid') {
+        await client.query(
+          `UPDATE ${quoteIdent('consignments')} SET ${quoteIdent('payment_status')} = 'Paid', ${quoteIdent('updated_at')} = NOW() WHERE ${quoteIdent('freight_bill_id')} = $1`,
+          [billId]
+        );
+      }
+
+      await client.query('COMMIT');
+      updatedBill.lineItems = await this.getLineItems(billId);
+      updatedBill.payments = await this.getPayments(billId);
+      return updatedBill;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getPayments(billId) {
+    const result = await pool.query(
+      `SELECT * FROM ${quoteIdent('freight_bill_payments')} WHERE ${quoteIdent('freight_bill_id')} = $1 ORDER BY ${quoteIdent('payment_date')} ASC, ${quoteIdent('id')} ASC`,
+      [billId]
+    );
+    return result.rows.map((row) => ({
+      _id: row.id,
+      id: row.id,
+      freightBillId: row.freight_bill_id,
+      amount: Number(row.amount),
+      paymentDate: row.payment_date,
+      mode: row.mode,
+      notes: row.notes,
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    }));
   }
 
   async replaceLineItems(client, billId, lineItems) {

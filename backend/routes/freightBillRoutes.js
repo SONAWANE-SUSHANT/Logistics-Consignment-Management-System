@@ -6,6 +6,8 @@ const {
   createFreightBill,
   getFreightBills,
   getFreightBillById,
+  recordFreightBillPayment,
+  getFreightBillPayments,
   markFreightBillPaid,
   deleteFreightBill,
 } = require('../controllers/freightBillController');
@@ -17,6 +19,7 @@ router.post('/preview', previewFreightBill);
 router.get('/consignments', getBillConsignments);
 router.route('/').get(getFreightBills).post(createFreightBill);
 router.route('/:id/mark-paid').patch(markFreightBillPaid).post(markFreightBillPaid).put(markFreightBillPaid);
+router.route('/:id/payments').get(getFreightBillPayments).post(recordFreightBillPayment);
 router.route('/:id').get(getFreightBillById).delete(deleteFreightBill);
 
 module.exports = router;

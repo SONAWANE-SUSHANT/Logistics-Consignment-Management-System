@@ -105,8 +105,15 @@ class PgModel {
       return map;
     }, {});
     Object.assign(this.fieldToColumn, columns);
-    this.columnToField = Object.entries(this.fieldToColumn).reduce((map, [field, column]) => {
-      map[column] = field;
+    // Build the reverse (column -> field) map from the model's own `fields` list ONLY.
+    // `columns` can also carry dotted search aliases (e.g. 'customerSnapshot.companyName')
+    // that resolve to the SAME db column as a real field (e.g. 'companyName' -> company_name,
+    // used for filtering/search). If those aliases were allowed into this reverse map they'd
+    // win the lookup (since they're merged in after the real fields), and hydrate() would end
+    // up writing the column's value onto a literal 'customerSnapshot.companyName' key instead
+    // of doc.companyName — leaving doc.companyName undefined even though the column has data.
+    this.columnToField = fields.reduce((map, field) => {
+      map[this.fieldToColumn[field]] = field;
       return map;
     }, {});
   }

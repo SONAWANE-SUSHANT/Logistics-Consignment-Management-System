@@ -236,6 +236,8 @@ const createFreightBill = async (req, res) => {
         billNumber: await generateFreightBillNumber(),
         billDate: req.body.billDate || new Date(),
         notes: req.body.notes,
+        status: 'Unpaid',
+        paidAmount: 0,
         createdBy: req.user?._id,
       });
     } catch (error) {
@@ -278,23 +280,77 @@ const getFreightBillById = async (req, res) => {
     res.status(404);
     throw new Error('Freight bill not found');
   }
+  bill.payments = await FreightBill.getPayments(bill._id);
   res.json(bill);
 };
 
-const markFreightBillPaid = async (req, res) => {
-  const bill = await FreightBill.findById(req.params.id);
+// Records a payment against a freight bill. Amount must be > 0 and cannot exceed the
+// remaining pending balance; paidAmount/pendingAmount/status are recalculated atomically
+// inside FreightBill.recordPayment, and consignments are marked Paid once the bill is
+// fully settled.
+const recordFreightBillPayment = async (req, res) => {
+  const { amount, paymentDate, mode, notes } = req.body;
+  const paymentAmount = Number(amount);
+  if (!paymentAmount || Number.isNaN(paymentAmount) || paymentAmount <= 0) {
+    res.status(400);
+    throw new Error('Payment amount must be a valid amount greater than zero');
+  }
+
+  const bill = await FreightBill.recordPayment(req.params.id, {
+    amount: paymentAmount,
+    paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+    mode,
+    notes,
+    createdBy: req.user?._id,
+  });
+
   if (!bill) {
     res.status(404);
     throw new Error('Freight bill not found');
   }
 
-  bill.status = 'Paid';
-  await bill.save();
+  res.status(201).json(bill);
+};
 
-  await Consignment.updateMany(
-    { _id: { $in: bill.lineItems.map((item) => item.consignmentId) } },
-    { paymentStatus: 'Paid' }
-  );
+const getFreightBillPayments = async (req, res) => {
+  const bill = await FreightBill.findById(req.params.id);
+  if (!bill) {
+    res.status(404);
+    throw new Error('Freight bill not found');
+  }
+  const payments = await FreightBill.getPayments(req.params.id);
+  res.json({
+    payments,
+    paidAmount: bill.paidAmount,
+    pendingAmount: bill.pendingAmount,
+    grandTotal: bill.grandTotal,
+    status: bill.status,
+  });
+};
+
+// Kept for backward compatibility with the existing "Mark as Paid" action — settles
+// whatever balance remains in a single payment via the same recordPayment path used
+// for partial payments, so paidAmount/status/consignments all stay consistent.
+const markFreightBillPaid = async (req, res) => {
+  const existing = await FreightBill.findById(req.params.id);
+  if (!existing) {
+    res.status(404);
+    throw new Error('Freight bill not found');
+  }
+
+  const remaining = roundMoney(Number(existing.grandTotal || 0) - Number(existing.paidAmount || 0));
+  if (remaining <= 0) {
+    res.json(existing);
+    return;
+  }
+
+  const bill = await FreightBill.recordPayment(req.params.id, {
+    amount: remaining,
+    paymentDate: new Date(),
+    mode: req.body?.mode || 'Full Settlement',
+    notes: req.body?.notes || 'Marked as fully paid',
+    createdBy: req.user?._id,
+  });
 
   res.json(bill);
 };
@@ -315,6 +371,8 @@ module.exports = {
   createFreightBill,
   getFreightBills,
   getFreightBillById,
+  recordFreightBillPayment,
+  getFreightBillPayments,
   markFreightBillPaid,
   deleteFreightBill,
 };

@@ -8,6 +8,7 @@ import TripDetailsPage from './pages/TripDetailsPage';
 import ConsignmentsPage from './pages/ConsignmentsPage';
 import ConsignmentDetailsPage from './pages/ConsignmentDetailsPage';
 import FreightBillsPage from './pages/FreightBillsPage';
+import GenerateFreightBillPage from './pages/GenerateFreightBillPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
 import Layout from './layouts/Layout';
@@ -37,6 +38,7 @@ const App = () => {
         <Route path="consignments" element={<ConsignmentsPage />} />
         <Route path="consignments/:id" element={<ConsignmentDetailsPage />} />
         <Route path="freight-bills" element={<FreightBillsPage />} />
+        <Route path="freight-bills/generate" element={<GenerateFreightBillPage />} />
         <Route path="freight-bills/:id" element={<FreightBillsPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="settings" element={<SettingsPage />} />

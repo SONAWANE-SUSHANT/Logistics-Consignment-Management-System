@@ -476,6 +476,25 @@ const LastPageSummary = ({ bill }) => {
         <Text style={styles.taxLabel}>Grand Total</Text>
         <Text style={styles.taxAmount}>{money(bill.grandTotal, 0)}</Text>
       </View>
+      {bill.paidAmount !== undefined && bill.paidAmount !== null && (
+        <>
+          <View style={styles.taxRow} wrap={false}>
+            <View style={styles.taxBlank} />
+            <Text style={styles.taxLabel}>Paid Amount</Text>
+            <Text style={styles.taxAmount}>{money(bill.paidAmount, 0)}</Text>
+          </View>
+          <View style={styles.taxRow} wrap={false}>
+            <View style={styles.taxBlank} />
+            <Text style={styles.taxLabel}>Balance Due</Text>
+            <Text style={styles.taxAmount}>{money(bill.pendingAmount ?? (bill.grandTotal - bill.paidAmount), 0)}</Text>
+          </View>
+          <View style={styles.taxRow} wrap={false}>
+            <View style={styles.taxBlank} />
+            <Text style={styles.taxLabel}>Payment Status</Text>
+            <Text style={styles.taxAmount}>{bill.status || 'Unpaid'}</Text>
+          </View>
+        </>
+      )}
       <Text style={styles.words}>In words:- {bill.amountInWords}</Text>
       <View style={styles.footer} wrap={false}>
         <View style={styles.bank}>
