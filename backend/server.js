@@ -22,7 +22,7 @@ const freightBillRoutes = require('./routes/freightBillRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const searchRoutes = require('./routes/searchRoutes');
-
+const adminRoutes = require('./routes/adminRoutes');
 connectDB();
 
 const app = express();
@@ -44,6 +44,7 @@ app.use('/api/freight-bills', freightBillRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

@@ -1,5 +1,6 @@
 import PageHeader from '../components/PageHeader';
 import FormField, { inputClass } from '../components/FormField';
+import AdminBillingSection from '../components/AdminBillingSection';
 
 const SettingsPage = () => (
   <div className="space-y-6">
@@ -30,6 +31,8 @@ const SettingsPage = () => (
         </label>
       </div>
     </section>
+
+    <AdminBillingSection />
   </div>
 );
 
