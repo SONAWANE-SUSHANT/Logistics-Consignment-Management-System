@@ -1,4 +1,4 @@
-# Shree Maruti Logistics - Logistics Consignment Management System
+ Logistics Consignment Management System
 
 This workspace contains a PostgreSQL-backed logistics consignment management system with an Express API and a React/Tailwind frontend.
 
