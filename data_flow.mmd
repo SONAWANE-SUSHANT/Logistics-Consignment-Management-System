@@ -1,0 +1,41 @@
+flowchart LR
+    %% Data Flow & Lifecycle of Consignments and Billing
+    classDef init fill:#EBF8FF,stroke:#3182CE,stroke-width:2px,color:#2B6CB0;
+    classDef transit fill:#FEFCBF,stroke:#D69E2E,stroke-width:2px,color:#744210;
+    classDef bill fill:#FAF5FF,stroke:#805AD5,stroke-width:2px,color:#553C9A;
+    classDef pay fill:#E6FFFA,stroke:#319795,stroke-width:2px,color:#234E52;
+
+    subgraph Stage1 ["1. Consignment Booking"]
+        LR["Generate LR<br/>(Set Weight & Charges)"]:::init
+        TripAssign["Assign to Trip<br/>(Vehicle & Route)"]:::init
+        LR --> TripAssign
+    end
+
+    subgraph Stage2 ["2. Transit & Dispatch"]
+        Pending["Status: Pending"]:::transit
+        Ongoing["Trip Departed:<br/>In Transit"]:::transit
+        Delivered["Delivered to Consignee"]:::transit
+        
+        TripAssign --> Pending --> Ongoing --> Delivered
+    end
+
+    subgraph Stage3 ["3. Freight Billing"]
+        Select["Select Customer & Date Range"]:::bill
+        Compute["Compute Weight × Rate<br/>+ GST (CGST/SGST/IGST)"]:::bill
+        BillGen["Generate Freight Bill<br/>(Snapshots Customer Info)"]:::bill
+        
+        Delivered --> Select --> Compute --> BillGen
+    end
+
+    subgraph Stage4 ["4. Payment Ledger"]
+        Unpaid["Status: Unpaid<br/>(Pending = Grand Total)"]:::pay
+        Partial["Partial Payment Received<br/>(Status: Partially Paid)"]:::pay
+        Paid["Remaining Paid<br/>(Status: Paid)"]:::pay
+        ConsignSettled["Mark Consignments Paid"]:::pay
+
+        BillGen --> Unpaid
+        Unpaid -->|Payment Installment| Partial
+        Partial -->|Settlement| Paid
+        Unpaid -->|Full Payment| Paid
+        Paid --> ConsignSettled
+    end

@@ -73,7 +73,7 @@ const generateTripNumber = (index) => {
 };
 
 const generateLRNumber = (index) => {
-  return `TL${String(index + 1).padStart(6, "0")}`;
+  return `LR-${7501 + index}`;
 };
 
 const generateInvoiceNumber = (index) => {

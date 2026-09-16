@@ -1,0 +1,31 @@
+sequenceDiagram
+    autonumber
+    actor User as Logistics User
+    participant Browser as React Frontend
+    participant Server as Express API
+    participant DB as PostgreSQL Database
+
+    User->>Browser: Enters Email and Password
+    Browser->>Server: POST /api/auth/login
+    Server->>DB: SELECT * FROM users WHERE LOWER(email) = LOWER($1)
+    DB-->>Server: User row with bcrypt hash
+    Server->>Server: bcrypt.compare(plainPassword, user.password)
+    
+    alt Password Valid
+        Server->>Server: jwt.sign({ id: user.id }, JWT_SECRET)
+        Server-->>Browser: Set-Cookie: token (HttpOnly, SameSite=Strict) + User Object
+        Browser-->>User: Redirect to Dashboard
+    else Invalid Credentials
+        Server-->>Browser: 401 Unauthorized ("Invalid email or password")
+        Browser-->>User: Show error toast alert
+    end
+
+    Note over User,Browser: Authenticated API Request Flow
+
+    User->>Browser: Opens Freight Bills Page
+    Browser->>Server: GET /api/freight-bills (Cookie automatically sent)
+    Server->>Server: jwt.verify(req.cookies.token, JWT_SECRET)
+    Server->>DB: Query bills with joins & pagination
+    DB-->>Server: Rows array
+    Server-->>Browser: 200 OK with bills payload
+    Browser-->>User: Renders Data Table

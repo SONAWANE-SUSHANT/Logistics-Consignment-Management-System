@@ -1,0 +1,25 @@
+sequenceDiagram
+    autonumber
+    actor Admin as Admin Operator
+    participant UI as Admin Chat Drawer
+    participant Server as Express (/api/admin/ai/ask)
+    participant Gemini as Google Gemini 3.6 Flash
+    participant Service as Admin Billing Service
+    participant DB as PostgreSQL Database
+
+    Admin->>UI: Types query ("Show me all unpaid bills")
+    UI->>Server: POST /api/admin/ai/ask { message, history }
+    Server->>Gemini: ai.models.generateContent(prompt + billing tools)
+    
+    Gemini-->>Server: Function Call Requested: getUnpaidBillsTool()
+    
+    Server->>Service: getUnpaidBills({ limit: 100 })
+    Service->>DB: SELECT * FROM freight_bills WHERE status = 'Unpaid'
+    DB-->>Service: Database Result Rows
+    Service-->>Server: JSON Tool Results
+    
+    Server->>Gemini: Send Tool Output back to Gemini
+    Gemini-->>Server: Final Generated Text (Natural response with verified ₹ amounts)
+    
+    Server-->>UI: 200 OK { reply, toolsUsed: ['getUnpaidBills'] }
+    UI-->>Admin: Displays formatted markdown response with badge

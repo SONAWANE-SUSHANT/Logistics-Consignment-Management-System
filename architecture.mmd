@@ -1,0 +1,50 @@
+flowchart TD
+    %% Global Styling
+    classDef client fill:#EBF8FF,stroke:#3182CE,stroke-width:2px,color:#2B6CB0;
+    classDef server fill:#EDF2F7,stroke:#4A5568,stroke-width:2px,color:#2D3748;
+    classDef service fill:#FEFCBF,stroke:#D69E2E,stroke-width:2px,color:#744210;
+    classDef data fill:#E6FFFA,stroke:#319795,stroke-width:2px,color:#234E52;
+    classDef ai fill:#FAF5FF,stroke:#805AD5,stroke-width:2px,color:#553C9A;
+
+    subgraph ClientTier ["1. Presentation Layer (Frontend - React + Vite)"]
+        UI["React SPA<br/>(Tailwind CSS + React Router)"]:::client
+        State["State & Data Fetching<br/>(TanStack React Query + Context)"]:::client
+        PDF["PDF Generator<br/>(@react-pdf/renderer)"]:::client
+        UI --> State
+        UI --> PDF
+    end
+
+    subgraph ServerTier ["2. Backend API Layer (Express.js)"]
+        Router["Express Router & Dispatcher<br/>(/api/*)"]:::server
+        Auth["Security & Middlewares<br/>(JWT Cookie Auth + CORS + Errors)"]:::server
+        Controllers["Route Controllers<br/>(Auth, Customers, Trips, Consignments, Bills)"]:::server
+        
+        Router --> Auth
+        Auth --> Controllers
+    end
+
+    subgraph LogicTier ["3. Business Logic & Adapters"]
+        BizLogic["Services & Generators<br/>(LR Number, Bill Number, Calculations)"]:::service
+        ORM["PostgreSQL Adapter<br/>(Custom Mongoose-compatible PgModel)"]:::service
+        
+        Controllers --> BizLogic
+        Controllers --> ORM
+        BizLogic --> ORM
+    end
+
+    subgraph DataTier ["4. Persistent Storage (PostgreSQL)"]
+        DB[("PostgreSQL Database<br/>(7 Relational Tables + Ledger)")]:::data
+        ORM -->|pg Connection Pool| DB
+    end
+
+    subgraph AITier ["5. AI Billing Intelligence"]
+        Gemini["Google Gemini Model<br/>(gemini-3.6-flash)"]:::ai
+        AITools["Billing Function Calling Tools<br/>(Summary, Unpaid, Partially Paid)"]:::ai
+        
+        Controllers -.->|Ask Billing Assistant| Gemini
+        Gemini <-->|Tool Call Execution| AITools
+        AITools -->|Direct Query| DB
+    end
+
+    %% Client to Server connection
+    State -->|HTTP / REST + JSON<br/>(Credentials: Include)| Router

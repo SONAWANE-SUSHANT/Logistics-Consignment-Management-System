@@ -15,9 +15,20 @@ const generateTripNumber = async () => {
 };
 
 const generateLRNumber = async () => {
-  const count = await Consignment.countDocuments();
-  return `LR-${String(count + 1).padStart(5, '0')}`;
+  const START_NUMBER = 7501;
+  try {
+    const result = await pool.query(
+      `SELECT MAX(CAST(substring("lr_number" from '[0-9]+') AS INT)) AS max_num FROM "consignments" WHERE "lr_number" IS NOT NULL`
+    );
+    const maxNum = result.rows[0]?.max_num;
+    const nextSeq = maxNum && maxNum >= START_NUMBER ? maxNum + 1 : START_NUMBER;
+    return `LR-${nextSeq}`;
+  } catch (error) {
+    const count = await Consignment.countDocuments();
+    return `LR-${START_NUMBER + count}`;
+  }
 };
+
 
 const generateFreightBillNumber = async () => {
   const now = new Date();
