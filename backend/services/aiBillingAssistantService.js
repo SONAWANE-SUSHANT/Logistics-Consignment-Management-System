@@ -1,4 +1,9 @@
-const { GoogleGenAI, Type } = require('@google/genai');
+require('dotenv').config();
+
+const { StateGraph, MessagesAnnotation, END, START } = require('@langchain/langgraph');
+const { ToolNode, toolsCondition } = require('@langchain/langgraph/prebuilt');
+const { ChatGoogleGenerativeAI } = require('@langchain/google-genai');
+const { SystemMessage, HumanMessage, AIMessage } = require('@langchain/core/messages');
 
 const {
   getBillingSummaryTool,
@@ -6,29 +11,6 @@ const {
   getUnpaidBillsTool,
   getPaidBillsTool,
 } = require('../ai/tools/billingTools');
-
-
-/*
-|--------------------------------------------------------------------------
-| Configuration
-|--------------------------------------------------------------------------
-*/
-
-const MODEL = 'gemini-3.6-flash';
-
-const MAX_TOOL_ITERATIONS = 5;
-
-
-/*
-|--------------------------------------------------------------------------
-| Gemini Client
-|--------------------------------------------------------------------------
-*/
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
-
 
 /*
 |--------------------------------------------------------------------------
@@ -112,187 +94,71 @@ OUTPUT FORMAT:
     requested by the user.
 `;
 
-
 /*
 |--------------------------------------------------------------------------
-| Gemini Function Declarations
-|--------------------------------------------------------------------------
-|
-| These describe functions Gemini is allowed to REQUEST.
-| Gemini never executes them itself — our backend does, in TOOL_HANDLERS below.
+| LangGraph StateGraph Definition
 |--------------------------------------------------------------------------
 */
 
-const TOOLS = [
-  {
-    functionDeclarations: [
-      {
-        name: 'get_billing_summary',
-        description:
-          'Get overall freight billing statistics including total bills, total billed amount, total paid amount, total pending amount, and counts of paid, unpaid, and partially paid bills.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {},
-        },
-      },
-      {
-        name: 'get_partially_paid_bills',
-        description:
-          'Get freight bills where some payment has been received but the bill is not fully paid (paid amount greater than zero and less than the grand total).',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            limit: {
-              type: Type.NUMBER,
-              description: 'Maximum number of bills to return. Defaults to 100, should not exceed 500.',
-            },
-          },
-        },
-      },
-      {
-        name: 'get_unpaid_bills',
-        description: 'Get freight bills where no payment has been recorded yet.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            limit: {
-              type: Type.NUMBER,
-              description: 'Maximum number of bills to return. Defaults to 100, should not exceed 500.',
-            },
-          },
-        },
-      },
-      {
-        name: 'get_paid_bills',
-        description: 'Get freight bills that have been completely paid.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            limit: {
-              type: Type.NUMBER,
-              description: 'Maximum number of bills to return. Defaults to 100, should not exceed 500.',
-            },
-          },
-        },
-      },
-    ],
-  },
+const tools = [
+  getBillingSummaryTool,
+  getPartiallyPaidBillsTool,
+  getUnpaidBillsTool,
+  getPaidBillsTool,
 ];
 
+const llm = new ChatGoogleGenerativeAI({
+  model: 'gemini-3.6-flash',
+  apiKey: process.env.GEMINI_API_KEY,
+}).bindTools(tools);
 
-/*
-|--------------------------------------------------------------------------
-| Tool Handlers
-|--------------------------------------------------------------------------
-|
-| Gemini chooses a tool by name; we run the corresponding existing
-| billing service function against Postgres.
-|--------------------------------------------------------------------------
-*/
-
-const TOOL_HANDLERS = {
-  get_billing_summary: () => getBillingSummaryTool(),
-  get_partially_paid_bills: (input = {}) => getPartiallyPaidBillsTool(input),
-  get_unpaid_bills: (input = {}) => getUnpaidBillsTool(input),
-  get_paid_bills: (input = {}) => getPaidBillsTool(input),
+const callModel = async (state) => {
+  const messages = [new SystemMessage(SYSTEM_PROMPT), ...state.messages];
+  const response = await llm.invoke(messages);
+  return { messages: [response] };
 };
 
+const graph = new StateGraph(MessagesAnnotation)
+  .addNode('agent', callModel)
+  .addNode('tools', new ToolNode(tools))
+  .addEdge(START, 'agent')
+  .addConditionalEdges('agent', toolsCondition) // routes to 'tools' or END
+  .addEdge('tools', 'agent')
+  .compile();
 
 /*
 |--------------------------------------------------------------------------
-| Helpers
+| Assistant Interface
 |--------------------------------------------------------------------------
 */
 
-// Turn our simple { role, content } history into Gemini Content[] parts.
-// Gemini uses 'model' (not 'assistant') for the assistant role.
-const toGeminiContents = (history) =>
-  history.map((turn) => ({
-    role: turn.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: turn.content }],
-  }));
-
-
-/*
-|--------------------------------------------------------------------------
-| Run Billing Assistant
-|--------------------------------------------------------------------------
-*/
+const toGeminiHistory = (history) =>
+  history.map((t) => (t.role === 'assistant' ? new AIMessage(t.content) : new HumanMessage(t.content)));
 
 const askBillingAssistant = async (message, history = []) => {
   if (!process.env.GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY is not configured on the server.');
   }
 
-  const contents = [
-    ...toGeminiContents(history),
-    { role: 'user', parts: [{ text: message }] },
-  ];
+  const result = await graph.invoke(
+    {
+      messages: [...toGeminiHistory(history), new HumanMessage(message)],
+    },
+    { recursionLimit: 10 }
+  );
 
-  const toolsUsed = [];
-
-  for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
-    const response = await ai.models.generateContent({
-      model: MODEL,
-      contents,
-      config: {
-        tools: TOOLS,
-        systemInstruction: SYSTEM_PROMPT,
-      },
-    });
-
-    const functionCalls = response.functionCalls || [];
-
-    // No function call means Gemini has produced the final answer.
-    if (functionCalls.length === 0) {
-      return {
-        reply: response.text || '',
-        toolsUsed,
-      };
-    }
-
-    // Preserve the model's turn (the function call parts) exactly as returned —
-    // required so the next request has full context of what was requested.
-    contents.push(response.candidates[0].content);
-
-    // Execute every requested function and build the matching functionResponse parts.
-    const functionResponseParts = [];
-
-    for (const call of functionCalls) {
-      const toolName = call.name;
-      const toolInput = call.args || {};
-
-      toolsUsed.push(toolName);
-
-      const handler = TOOL_HANDLERS[toolName];
-      let result;
-
-      try {
-        result = handler ? await handler(toolInput) : { error: `Unknown billing tool: ${toolName}` };
-      } catch (error) {
-        console.error(`Billing tool error (${toolName}):`, error);
-        result = { error: error.message };
-      }
-
-      // IMPORTANT: Gemini expects `response` to be a plain object, not an array
-      // or string — this is the part the previous version got wrong.
-      functionResponseParts.push({
-        functionResponse: {
-          name: toolName,
-          response: { result },
-        },
-      });
-    }
-
-    contents.push({ role: 'user', parts: functionResponseParts });
-  }
+  const last = result.messages[result.messages.length - 1];
+  const toolsUsed = result.messages
+    .filter((m) => m.tool_calls?.length)
+    .flatMap((m) => m.tool_calls.map((c) => c.name));
 
   return {
-    reply: "I wasn't able to complete the billing lookup. Please try a more specific question.",
+    reply: typeof last.content === 'string' ? last.content : JSON.stringify(last.content),
     toolsUsed,
   };
 };
 
 module.exports = {
+  graph,
   askBillingAssistant,
 };
