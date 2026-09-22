@@ -1,24 +1,48 @@
+%% ============================================================================
+%% LangGraph StateGraph Architecture: AI Billing Assistant
+%% Migrated: Legacy manual generateContent for-loop -> LangGraph StateGraph
+%% Stack: @langchain/langgraph, @langchain/google-genai, @langchain/core, zod
+%% ============================================================================
+
 sequenceDiagram
     autonumber
     actor Admin as Admin Operator
     participant UI as Admin Chat Drawer
-    participant Server as Express (/api/admin/ai/ask)
+    participant Server as Express Server (/api/admin/ai/ask)
     participant Graph as LangGraph StateGraph
     participant Agent as Agent Node (ChatGoogleGenerativeAI)
+    participant Condition as Conditional Edge (toolsCondition)
     participant Tools as ToolNode (billingTools)
     participant DB as PostgreSQL Database
 
-    Admin->>UI: Types query ("Show me all unpaid bills")
+    Note over Server,Graph: Migrated to LangGraph StateGraph with Agent & Tool Nodes
+    Admin->>UI: Types billing query (e.g. "Show pending amount and unpaid bills")
     UI->>Server: POST /api/admin/ai/ask { message, history }
     Server->>Graph: graph.invoke({ messages }, { recursionLimit: 10 })
-    Graph->>Agent: callModel(state) with SystemMessage
-    Agent->>Graph: AIMessage with tool_calls (get_unpaid_bills)
-    Graph->>Tools: toolsCondition routes to ToolNode
-    Tools->>DB: Execute getUnpaidBills({ limit })
-    DB-->>Tools: Database Result Rows
-    Tools-->>Graph: ToolMessage with stringified JSON result
-    Graph->>Agent: Loop back to Agent Node with tool results
-    Agent->>Graph: Final AIMessage (no tool_calls)
-    Graph-->>Server: Final State (toolsCondition routes to END)
-    Server-->>UI: 200 OK { reply, toolsUsed: ['get_unpaid_bills'] }
-    UI-->>Admin: Displays formatted response with tool badge
+
+    rect rgb(240, 248, 255)
+        Note over Graph,Agent: Node: agent
+        Graph->>Agent: callModel(state): Prepend SYSTEM_PROMPT + state.messages
+        Agent->>Condition: Return AIMessage (checks for tool_calls)
+    end
+
+    alt Has tool_calls (LLM decides tools are needed)
+        Condition->>Tools: Route to "tools" node
+        rect rgb(245, 255, 245)
+            Note over Tools,DB: Node: tools (ToolNode auto-execution)
+            Tools->>DB: Execute get_unpaid_bills / get_billing_summary query
+            DB-->>Tools: PostgreSQL query result rows
+            Tools->>Graph: Append ToolMessages (serialized JSON)
+        end
+        Note over Graph,Agent: Loop back via edge: 'tools' -> 'agent'
+        Graph->>Agent: callModel(state with ToolMessages context)
+        Agent->>Condition: Return new AIMessage
+    end
+
+    rect rgb(255, 250, 240)
+        Condition->>Graph: No tool_calls -> Route to END
+    end
+
+    Graph-->>Server: Final State (last AIMessage + aggregated tool_calls)
+    Server-->>UI: 200 OK { success: true, data: { reply, toolsUsed } }
+    UI-->>Admin: Render clean formatted response with tool badge

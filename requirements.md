@@ -82,8 +82,8 @@ The **Logistics Consignment Management System** is a business application engine
 - **FR-8.1**: Single top-bar search bar returning matching results grouped by Customers, Trips, and Consignments.
 
 ### FR-9: AI Billing Intelligence
-- **FR-9.1**: Internal chat drawer for operational executives powered by Google Gemini.
-- **FR-9.2**: Agentic function calling execution that queries read-only database views for exact unpaid, partially paid, and summary figures.
+- **FR-9.1**: Internal chat drawer for operational executives powered by Google Gemini (`gemini-3.6-flash`) via LangChain and LangGraph.
+- **FR-9.2**: Cyclical LangGraph `StateGraph` orchestration with an `agent` node and `tools` node routed by `toolsCondition` that queries read-only PostgreSQL views for exact unpaid, partially paid, and billing summary figures with zero hallucination.
 
 ---
 

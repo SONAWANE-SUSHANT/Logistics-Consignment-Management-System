@@ -46,13 +46,17 @@ flowchart TD
         ORM -->|pg Connection Pool| DB
     end
 
-    subgraph AITier ["5. AI Billing Intelligence"]
-        Gemini["Google Gemini Model<br/>(gemini-3.6-flash)"]:::ai
-        AITools["Billing Function Calling Tools<br/>(Summary, Unpaid, Partially Paid)"]:::ai
+    subgraph AITier ["5. AI Billing Intelligence (LangGraph StateGraph)"]
+        AgentNode["Agent Node<br/>(ChatGoogleGenerativeAI: gemini-3.6-flash)"]:::ai
+        ToolCondition{"toolsCondition<br/>(Conditional Edge)"}:::ai
+        ToolNode["ToolNode<br/>(Zod Schemas + billingTools)"]:::ai
         
-        Controllers -.->|Ask Billing Assistant| Gemini
-        Gemini <-->|Tool Call Execution| AITools
-        AITools -->|Direct Query| DB
+        Controllers -.->|Invoke Graph| AgentNode
+        AgentNode --> ToolCondition
+        ToolCondition -->|has tool_calls| ToolNode
+        ToolNode -->|ToolMessages Loop| AgentNode
+        ToolCondition -->|no tool_calls| EndNode([END Response]):::ai
+        ToolNode -->|Direct Query| DB
     end
 
     %% Client to Server connection
@@ -94,9 +98,13 @@ flowchart TD
 - **Data Model**: Relational structure with foreign key checks (`RESTRICT` on consignments and customer/trip links, `CASCADE` on freight bill lines and payment entries).
 - **Payment Ledger**: Multi-payment tracking supporting partial settlements, remaining balance math, and automated bill status updates (`Unpaid` -> `Partially Paid` -> `Paid`).
 
-### 5. AI Intelligence Layer (Google Gemini)
-- **SDK**: `@google/genai` with model `gemini-3.6-flash`.
-- **Execution Model**: Multi-turn tool calling (Function Calling). The assistant dynamically invokes read-only database query tools (`getBillingSummary`, `getUnpaidBills`, `getPartiallyPaidBills`, `getPaidBills`) to answer real-time financial inquiries with zero data hallucination.
+### 5. AI Intelligence Layer (LangGraph & Google Gemini)
+- **Framework & SDK**: `@langchain/langgraph`, `@langchain/google-genai`, `@langchain/core`, and `zod` with model `gemini-3.6-flash`.
+- **Orchestration Model**: Cyclical StateGraph (`StateGraph(MessagesAnnotation)`):
+  - **Agent Node**: Injects `SYSTEM_PROMPT` and invokes `ChatGoogleGenerativeAI` bound with billing tools.
+  - **Conditional Edges**: Uses `toolsCondition` to dynamically route between the `tools` node and `END`.
+  - **Tool Node**: `ToolNode` auto-executes database query tools (`get_billing_summary`, `get_unpaid_bills`, `get_partially_paid_bills`, `get_paid_bills`) and loops back to the agent node until final response synthesis is complete.
+  - **Guardrails**: Hard iteration cap via `{ recursionLimit: 10 }` to avoid infinite tool loops, preventing data hallucination.
 
 ---
 

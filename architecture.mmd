@@ -37,13 +37,17 @@ flowchart TD
         ORM -->|pg Connection Pool| DB
     end
 
-    subgraph AITier ["5. AI Billing Intelligence"]
-        Gemini["Google Gemini Model<br/>(gemini-3.6-flash)"]:::ai
-        AITools["Billing Function Calling Tools<br/>(Summary, Unpaid, Partially Paid)"]:::ai
+    subgraph AITier ["5. AI Billing Intelligence (LangGraph StateGraph)"]
+        AgentNode["Agent Node<br/>(ChatGoogleGenerativeAI: gemini-3.6-flash)"]:::ai
+        ToolCondition{"toolsCondition<br/>(Conditional Edge)"}:::ai
+        ToolNode["ToolNode<br/>(Zod Schemas + billingTools)"]:::ai
         
-        Controllers -.->|Ask Billing Assistant| Gemini
-        Gemini <-->|Tool Call Execution| AITools
-        AITools -->|Direct Query| DB
+        Controllers -.->|Invoke Graph| AgentNode
+        AgentNode --> ToolCondition
+        ToolCondition -->|has tool_calls| ToolNode
+        ToolNode -->|ToolMessages Loop| AgentNode
+        ToolCondition -->|no tool_calls| EndNode([END Response]):::ai
+        ToolNode -->|Direct Query| DB
     end
 
     %% Client to Server connection

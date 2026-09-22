@@ -394,7 +394,7 @@ Records a full or partial installment.
   ```
 
 ### 8.2 Ask AI Billing Assistant
-Interactive natural language queries powered by Google Gemini and database tool-calling.
+Interactive natural language queries orchestrated by a LangGraph `StateGraph` (`agent` node -> `toolsCondition` -> `ToolNode` loop) using Google Gemini (`gemini-3.6-flash`).
 
 - **Endpoint**: `POST /api/admin/ai/ask`
 - **Request Body**:
@@ -412,8 +412,13 @@ Interactive natural language queries powered by Google Gemini and database tool-
   {
     "success": true,
     "data": {
-      "reply": "There are currently 2 customers with partially paid bills:\n1. **Acme Logistics Ltd** (Bill #FB-202609-0001): Grand Total ₹17,936, Paid ₹5,000, Pending ₹12,936.",
-      "toolsUsed": ["getPartiallyPaidBills"]
+      "reply": "Here are the partially paid freight bills:\n\n1. Bill Number: 26-27/001\n   Customer: Acme Logistics Ltd\n   Total: ₹17,936\n   Paid: ₹5,000\n   Pending: ₹12,936\n   Status: Partially Paid\n\nSummary: Total Pending: ₹12,936.",
+      "toolsUsed": ["get_partially_paid_bills"]
     }
   }
   ```
+- **Available Database Tools (Zod validated)**:
+  - `get_billing_summary`: Freight billing summary, gross billed, paid, pending, and bill counts.
+  - `get_partially_paid_bills`: Bills with partial settlement recorded.
+  - `get_unpaid_bills`: Bills with zero payment recorded.
+  - `get_paid_bills`: Fully cleared bills.
