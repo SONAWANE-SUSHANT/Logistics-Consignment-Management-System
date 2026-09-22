@@ -3,23 +3,22 @@ sequenceDiagram
     actor Admin as Admin Operator
     participant UI as Admin Chat Drawer
     participant Server as Express (/api/admin/ai/ask)
-    participant Gemini as Google Gemini 3.6 Flash
-    participant Service as Admin Billing Service
+    participant Graph as LangGraph StateGraph
+    participant Agent as Agent Node (ChatGoogleGenerativeAI)
+    participant Tools as ToolNode (billingTools)
     participant DB as PostgreSQL Database
 
     Admin->>UI: Types query ("Show me all unpaid bills")
     UI->>Server: POST /api/admin/ai/ask { message, history }
-    Server->>Gemini: ai.models.generateContent(prompt + billing tools)
-    
-    Gemini-->>Server: Function Call Requested: getUnpaidBillsTool()
-    
-    Server->>Service: getUnpaidBills({ limit: 100 })
-    Service->>DB: SELECT * FROM freight_bills WHERE status = 'Unpaid'
-    DB-->>Service: Database Result Rows
-    Service-->>Server: JSON Tool Results
-    
-    Server->>Gemini: Send Tool Output back to Gemini
-    Gemini-->>Server: Final Generated Text (Natural response with verified ₹ amounts)
-    
-    Server-->>UI: 200 OK { reply, toolsUsed: ['getUnpaidBills'] }
-    UI-->>Admin: Displays formatted markdown response with badge
+    Server->>Graph: graph.invoke({ messages }, { recursionLimit: 10 })
+    Graph->>Agent: callModel(state) with SystemMessage
+    Agent->>Graph: AIMessage with tool_calls (get_unpaid_bills)
+    Graph->>Tools: toolsCondition routes to ToolNode
+    Tools->>DB: Execute getUnpaidBills({ limit })
+    DB-->>Tools: Database Result Rows
+    Tools-->>Graph: ToolMessage with stringified JSON result
+    Graph->>Agent: Loop back to Agent Node with tool results
+    Agent->>Graph: Final AIMessage (no tool_calls)
+    Graph-->>Server: Final State (toolsCondition routes to END)
+    Server-->>UI: 200 OK { reply, toolsUsed: ['get_unpaid_bills'] }
+    UI-->>Admin: Displays formatted response with tool badge
